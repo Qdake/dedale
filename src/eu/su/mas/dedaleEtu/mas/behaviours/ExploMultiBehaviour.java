@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.Random;
 
 import dataStructures.tuple.Couple;
 import eu.su.mas.dedale.env.Observation;
@@ -98,7 +99,7 @@ public class ExploMultiBehaviour extends FSMBehaviour {
 		return super.onEnd();
 	}
 	
-
+    
 	public class Move extends OneShotBehaviour{
 		private static final long serialVersionUID = 2019355514537795289L;
 		private int next = 0;
@@ -118,72 +119,30 @@ public class ExploMultiBehaviour extends FSMBehaviour {
 				//List of observable from the agent's current position
 				List<Couple<String,List<Couple<Observation,Integer>>>> lobs=((AbstractDedaleAgent)this.myAgent).observe();//myPosition
 
-				/**
-				 * Just added here to let you see what the agent is doing, otherwise he will be too quick
-				 */
-				try {
-					this.myAgent.doWait(500);
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
+				//Just added here to let you see what the agent is doing, otherwise he will be too quick
+				agent_wait(500);
+				
+                //remove current node from open list and add to closedNodes
+				remove_current_node_from_open_list_and_add_to_closedNodes(myPosition);
+				
+				//2) get the surrounding nodes and, if not in closedNodes, add them to open nodes, and return a directly accessible openNode
+				String nextNode = f1(lobs,myPosition);
 
-				//1) remove the current node from openlist and add it to closedNodes.
-				closedNodes.add(myPosition);
-				openNodes.remove(myPosition);
-				myMap.addNode(myPosition,MapAttribute.closed);
-				//2) get the surrounding nodes and, if not in closedNodes, add them to open nodes.
-				String nextNode=null;
-				Iterator<Couple<String, List<Couple<Observation, Integer>>>> iter=lobs.iterator();
-				while(iter.hasNext()){
-					String nodeId=iter.next().getLeft();
-					if (!closedNodes.contains(nodeId)){
-						if (!openNodes.contains(nodeId)){
-							openNodes.add(nodeId);
-							myMap.addNode(nodeId, MapAttribute.open);
-							myMap.addEdge(myPosition, nodeId);	
-						}else{
-							//the node exist, but not necessarily the edge
-							myMap.addEdge(myPosition, nodeId);
-						}
-					    if (nextNode==null) nextNode=nodeId;
-					}
-				}
-
-				//3) while openNodes is not empty, continues.
+				//3) while openNodes is not empty 
 				if (openNodes.size()==0){
-					System.out.println();
-					System.out.println("*****************Exploration successufully done.****************************************************");
-					System.out.println();
-					iter=lobs.iterator();
-					nextNode = iter.next().getLeft();
-					((AbstractDedaleAgent)this.myAgent).moveTo(nextNode);
+					//test
+					System.out.println();System.out.println("*****************Exploration successufully done.****************************************************");					System.out.println();
+					//choisir une position directement accessible, sauf la position actuelle
+					choixPosDirectAccessibleAlea(lobs,myPosition);
 				}else{
 					//4) select next move.
 					//4.1 If there exist one open node directly reachable, go for it,
 					//	 otherwise choose one from the openNode list, compute the shortestPath and go for it
-					if (nextNode==null){
-						//no directly accessible openNode
-						//chose one, compute the path and take the first step.
-						nextNode=myMap.getShortestPath(myPosition, openNodes.get(0)).get(0);
-					}else {
-					    ((AbstractDedaleAgent)this.myAgent).moveTo(nextNode);
-					}
+                    f2(nextNode,myPosition,openNodes);
 					
-					String myNewPosition = ((AbstractDedaleAgent)this.myAgent).getCurrentPosition();
-					String myOldPosition = myPosition;
-					//si la position n'a pas changer alors on est peut-etre dans interblocage
-					if (myNewPosition.equals(myOldPosition)) {   //si apres moveTo la position n'a pas change
-						long start = System.currentTimeMillis();
-						while (myNewPosition.equals(myOldPosition) && System.currentTimeMillis()-start < 500){    //on essaie d'acceder au nextNode pendant 500ms
-							if (nextNode != null)
-								((AbstractDedaleAgent)this.myAgent).moveTo(nextNode);
-							myNewPosition = ((AbstractDedaleAgent)this.myAgent).getCurrentPosition();
-						}	
-						if (myNewPosition.equals(myOldPosition)) {       //si on n'arrive toujours pas a changer d'aller a une autre position, alors on suppose que on est dans une situation d'interBlocage
-							next = 8;           //resoudre le blocage
-					    }
-					};
-
+                    //si l'agent n'a pas reussi a se deplacer et que le testInterBllocage a reussit alors l'agent est dans un interblocage
+					Boolean succes = testMovementSucces(((AbstractDedaleAgent)this.myAgent).getCurrentPosition(),myPosition);
+                    if (!succes && testInterBlocage(nextNode,myPosition)) next=8;
 				}
 				//endif
 			}
@@ -408,6 +367,88 @@ public class ExploMultiBehaviour extends FSMBehaviour {
 	}
 	//fin de IntegrerCarte
 
+	//#######################################################fonctions #####################################
+/*	private void dfs() {
+		while(iter.hasNext()){
+			String nodeId=iter.next().getLeft();
+			if (!closedNodes.contains(nodeId)){
+				if (!openNodes.contains(nodeId)){
+					openNodes.add(nodeId);
+					myMap.addNode(nodeId, MapAttribute.open);
+					myMap.addEdge(myPosition, nodeId);	
+				}else{
+					//the node exist, but not necessarily the edge
+					myMap.addEdge(myPosition, nodeId);
+				}
+			    if (nextNode==null) nextNode=nodeId;
+			}
+		}
+	}*/
+    private void remove_current_node_from_open_list_and_add_to_closedNodes(String myPosition) {
+    	closedNodes.add(myPosition);
+		openNodes.remove(myPosition);
+		myMap.addNode(myPosition,MapAttribute.closed);
+    }
+    
+    private void agent_wait(int T) {
+		try {
+			this.myAgent.doWait(500);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+    }
 	
-	
+    private String f1(List<Couple<String, List<Couple<Observation, Integer>>>> lobs, String myPosition) {
+		String nextNode=null;
+		Iterator<Couple<String, List<Couple<Observation, Integer>>>> iter=lobs.iterator();		
+		while(iter.hasNext()){
+			String nodeId=iter.next().getLeft();
+			if (!closedNodes.contains(nodeId)){
+				if (!openNodes.contains(nodeId)){
+					openNodes.add(nodeId);
+					myMap.addNode(nodeId, MapAttribute.open);
+					myMap.addEdge(myPosition, nodeId);	
+				}else{
+					//the node exist, but not necessarily the edge
+					myMap.addEdge(myPosition, nodeId);
+				}
+			    if (nextNode==null) nextNode=nodeId;
+			}
+		}
+		return nextNode;
+    }
+    
+    private String choixPosDirectAccessibleAlea(List<Couple<String,List<Couple<Observation,Integer>>>> lobs,String myPosition){
+    	Random r = new Random();
+    	int nbAlea = r.nextInt(lobs.size()-1)+1; // +1 car on ne veux pas que la position soit la position actuelle
+    	String nextNode = lobs.get(nbAlea).getLeft();
+    	return nextNode;
+    }
+    
+    private void f2(String nextNode,String myPosition,List<String> openNodes) {
+		if (nextNode==null){
+			//no directly accessible openNode
+			//chose one, compute the path and take the first step.
+			nextNode=myMap.getShortestPath(myPosition, openNodes.get(0)).get(0);
+		}else {
+		    ((AbstractDedaleAgent)this.myAgent).moveTo(nextNode);
+		}
+    }
+    
+    private Boolean testMovementSucces(String newPosition,String oldPosition) {
+    	return newPosition.equals(oldPosition)?false:true;
+    }
+    
+	private Boolean testInterBlocage(String nextNode,String myPosition) {
+		Boolean moveSucces = false;
+		long start = System.currentTimeMillis();
+		while (!moveSucces && System.currentTimeMillis()-start < 500){    //on essaie d'acceder au nextNode pendant 500ms
+			if (nextNode != null)
+				((AbstractDedaleAgent)this.myAgent).moveTo(nextNode);
+			moveSucces = testMovementSucces(((AbstractDedaleAgent)this.myAgent).getCurrentPosition(),myPosition);
+		}	
+    return moveSucces?false:true;
+	}
+    
+    
 }
